@@ -7,7 +7,6 @@ import pandas as pd
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-# Setup logger
 logger = logging.getLogger("agripulse.engine")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -25,9 +24,9 @@ from app.diagnostics import pump_diagnostics
 
 class StrictPumpRealTimeEngine:
     """
-    Production real-time inference engine per pump asset.
-    Maintains causal rolling windows with low-variance guards, ddof=1 alignment,
-    and truthful statistical attribution.
+    Industrial Real-Time Inference Engine.
+    Implements causal past feature engineering, sample variance (ddof=1),
+    time-persistence debouncing (ISA-18.2), and low-variance guards.
     """
 
     def __init__(
@@ -36,20 +35,28 @@ class StrictPumpRealTimeEngine:
         model_obj: Any = None,
         sensors: List[str] = CORE_SENSORS,
         warning_thresh: float = WARNING_THRESHOLD,
-        critical_thresh: float = CRITICAL_THRESHOLD
+        critical_thresh: float = CRITICAL_THRESHOLD,
+        persistence_warning_mins: int = 5,
+        persistence_critical_mins: int = 8
     ):
         self.pump_id = pump_id
         self.model = model_obj
         self.sensors = sensors
         self.warning_threshold = warning_thresh
         self.critical_threshold = critical_thresh
+        self.persistence_warning_mins = persistence_warning_mins
+        self.persistence_critical_mins = persistence_critical_mins
+
         self.buffer: List[Dict[str, Any]] = []
-        self.max_buffer_len = 65  # Sufficient to compute 60m delta with 1-min shift
+        self.max_buffer_len = 65
         self.score_history: List[float] = []
+
+        # Time-persistence alarm state counters (conforming to ANSI/ISA-18.2)
+        self.warning_consecutive_mins: int = 0
+        self.critical_consecutive_mins: int = 0
 
     def process_reading(self, reading: Dict[str, Any]) -> Dict[str, Any]:
         """Processes one incoming minute of telemetry."""
-        # Convert timestamp to datetime object if string
         ts = reading["timestamp"]
         if isinstance(ts, str):
             try:
@@ -84,26 +91,23 @@ class StrictPumpRealTimeEngine:
                 "current_readings": {s: float(reading.get(s, 0.0)) for s in self.sensors}
             }
 
-        # Compute 28 Causal Features & Guarded Signed Z-scores
+        # Compute 28 Causal Features (mean_15m, std_15m, delta_60m strictly past-shifted)
         feature_vector = []
         signed_z_scores = {}
 
         for sensor in self.sensors:
-            past_series = [float(r.get(sensor, 0.0)) for r in self.buffer[:-1]]  # Shift(1) strictly causal past
+            past_series = [float(r.get(sensor, 0.0)) for r in self.buffer[:-1]]
             curr_val = float(reading.get(sensor, 0.0))
 
             mean_15 = float(np.mean(past_series[-15:]))
-            # Match pandas ddof=1 sample standard deviation
             std_15 = float(np.std(past_series[-15:], ddof=1)) if len(past_series) >= 15 else 0.001
             mean_60 = float(np.mean(past_series[-60:]))
             delta_60 = curr_val - mean_60
             std_60 = float(np.std(past_series[-60:], ddof=1))
 
-            # Features vector: raw, mean_15, std_15, delta_60
             feature_vector.extend([curr_val, mean_15, std_15, delta_60])
 
-            # Low-variance guard against flatlining or division by zero:
-            # If standard deviation is near zero (< 0.001), sensor is stationary; deviation is zero.
+            # Relative low-variance guard: avoid dividing by zero or tiny jitter
             if std_60 < 1e-3:
                 signed_z_scores[sensor] = 0.0
             else:
@@ -116,7 +120,7 @@ class StrictPumpRealTimeEngine:
                 feat_arr = np.array(feature_vector).reshape(1, -1)
                 raw_risk = float(self.model.predict_proba(feat_arr)[:, 1][0])
             except Exception as e:
-                logger.error(f"Prediction model execution failed: {e}. Applying guarded heuristic.")
+                logger.error(f"Prediction model execution failed: {e}. Applying fallback.")
                 raw_risk = self._fallback_heuristic_risk(signed_z_scores)
         else:
             raw_risk = self._fallback_heuristic_risk(signed_z_scores)
@@ -127,13 +131,24 @@ class StrictPumpRealTimeEngine:
 
         smooth_risk = float(np.mean(self.score_history))
 
-        # Health Index calculation (100% normal, scaling down to 0% at critical threshold)
-        health_index = max(0.0, min(100.0, 100.0 * (1.0 - (smooth_risk / (self.critical_threshold * 1.5)))))
+        # Standardized Health Index equation (exact alignment with notebook: (1 - smooth) * 100)
+        health_index = max(0.0, min(100.0, (1.0 - smooth_risk) * 100.0))
 
-        # Determine Operational Status based on strictly calibrated cutoffs
+        # Update Time-Persistence Debounce Counters
         if smooth_risk >= self.critical_threshold:
-            status = "CRITICAL"
+            self.critical_consecutive_mins += 1
+            self.warning_consecutive_mins += 1
         elif smooth_risk >= self.warning_threshold:
+            self.warning_consecutive_mins += 1
+            self.critical_consecutive_mins = 0
+        else:
+            self.warning_consecutive_mins = 0
+            self.critical_consecutive_mins = 0
+
+        # Determine Operational Status with Persistence Filtering
+        if self.critical_consecutive_mins >= self.persistence_critical_mins:
+            status = "CRITICAL"
+        elif self.warning_consecutive_mins >= self.persistence_warning_mins:
             status = "WARNING"
         else:
             status = "NORMAL"
@@ -164,7 +179,7 @@ class StrictPumpRealTimeEngine:
         }
 
     def _fallback_heuristic_risk(self, z_scores: Dict[str, float]) -> float:
-        """Calibrated fallback if binary .pkl is absent during initialization."""
+        """Guarded fallback if binary .pkl is absent during initialization."""
         max_abs_z = max(abs(z) for z in z_scores.values()) if z_scores else 0.0
         return float(min(1.0, max_abs_z / 10.0 * 0.4))
 
@@ -182,7 +197,6 @@ class PumpEngineRegistry:
                 with open(MODEL_PATH, "rb") as f:
                     raw_obj = pickle.load(f)
                 
-                # Check if serialized object is direct classifier or wrapper
                 if hasattr(raw_obj, "predict_proba"):
                     self.loaded_model = raw_obj
                 elif hasattr(raw_obj, "model") and hasattr(raw_obj.model, "predict_proba"):
