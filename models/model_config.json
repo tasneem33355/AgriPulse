@@ -7,7 +7,7 @@
     "training_period": "2018-04-01 to 2018-05-31 (April-May)",
     "calibration_period": "2018-06-01 to 2018-06-30 (June)",
     "test_period": "2018-07-01 to 2018-08-31 (July-August)",
-    "target_asset": "Industrial End-Suction Centrifugal Irrigation Pump (Grundfos NB / Kirloskar DB Series)",
+    "target_asset": "Two-Stage Centrifugal Pumping System (IBM Telemetry Dataset: 220,320 rows)",
     "standards": ["ISO 10816-3 Class II", "ANSI/HI 9.6"]
   },
   "calibrated_thresholds": {
