@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  inference-service:
+    build:
+      context: ./services/inference
+      dockerfile: Dockerfile
+    container_name: agripulse-inference
+    ports:
+      - "8001:8001"
+    environment:
+      - PORT=8001
+      - WARNING_THRESHOLD=0.2713
+      - CRITICAL_THRESHOLD=0.3169
+    restart: always
+
+  rag-service:
+    build:
+      context: ./services/rag
+      dockerfile: Dockerfile
+    container_name: agripulse-rag
+    ports:
+      - "8002:8002"
+    environment:
+      - PORT=8002
+    restart: always
