@@ -30,4 +30,3 @@ CRITICAL_THRESHOLD = float(os.getenv("CRITICAL_THRESHOLD", cal_thresh.get("criti
 CORE_SENSORS = sensor_cfg.get("sensors_list", ["sensor_00", "sensor_04", "sensor_05", "sensor_11", "sensor_13", "sensor_28", "sensor_40"])
 WARMUP_MINUTES = int(sensor_cfg.get("buffer_warmup_minutes", 61))
 SMOOTH_WINDOW = int(sensor_cfg.get("smoothing_window_minutes", 15))
-RAG_SERVICE_URL = os.getenv("RAG_SERVICE_URL", "http://localhost:8002/generate-work-order")

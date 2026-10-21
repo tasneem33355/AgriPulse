@@ -1,0 +1,40 @@
+{
+  "model_metadata": {
+    "model_architecture": "ExtraTreesClassifier",
+    "n_estimators": 150,
+    "max_depth": 12,
+    "random_state": 42,
+    "training_period": "2018-04-01 to 2018-05-31 (April-May)",
+    "calibration_period": "2018-06-01 to 2018-06-30 (June)",
+    "test_period": "2018-07-01 to 2018-08-31 (July-August)",
+    "target_asset": "Industrial End-Suction Centrifugal Irrigation Pump (Grundfos NB / Kirloskar DB Series)",
+    "standards": ["ISO 10816-3 Class II", "ANSI/HI 9.6"]
+  },
+  "calibrated_thresholds": {
+    "warning_threshold": 0.3017,
+    "critical_threshold": 0.3691,
+    "calibration_method": "Independent June Normal Operating Percentiles (95% / 98.5%)"
+  },
+  "sensor_configuration": {
+    "sensor_count": 7,
+    "sensors_list": [
+      "sensor_00",
+      "sensor_04",
+      "sensor_05",
+      "sensor_11",
+      "sensor_13",
+      "sensor_28",
+      "sensor_40"
+    ],
+    "feature_count": 28,
+    "buffer_warmup_minutes": 61,
+    "smoothing_window_minutes": 15
+  },
+  "blind_test_evaluation_metrics": {
+    "test_roc_auc": 0.8878,
+    "test_average_precision": 0.0192,
+    "event_6_lead_time": "46.0 min",
+    "event_7_lead_time": "70.0 min",
+    "critical_false_alarms_2months": 74
+  }
+}

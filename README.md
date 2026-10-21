@@ -1,19 +1,31 @@
-# AgriPulse — Predictive Maintenance & AI Assistant for Irrigation Pumps
+# AgriPulse — Predictive Maintenance & Diagnostic AI Service
 
-[![System Status](https://img.shields.io/badge/System-Production--Ready-059669?style=flat-square)](#)
+[![System Status](https://img.shields.io/badge/Service-Production--Ready-059669?style=flat-square)](#)
 [![Machine Standard](https://img.shields.io/badge/Standard-ISO%2010816--3%20Class%20II-0284c7?style=flat-square)](#)
-[![Asset](https://img.shields.io/badge/Target%20Asset-Centrifugal%20Irrigation%20Pump-d97706?style=flat-square)](#)
-[![Architecture](https://img.shields.io/badge/Architecture-Causal%20AI%20%2B%20RAG-7c3aed?style=flat-square)](#)
+[![Deployment](https://img.shields.io/badge/Deployment-Railway%20Ready-7c3aed?style=flat-square)](#)
+[![Target Asset](https://img.shields.io/badge/Asset-Centrifugal%20Irrigation%20Pump-d97706?style=flat-square)](#)
 
-> **AgriPulse** is an industrial-grade, end-to-end predictive maintenance and automated work-order generation platform tailored for **Horizontal End-Suction Centrifugal Irrigation Pumps** (Grundfos NB / Kirloskar DB Series).
-> 
-> The platform combines **causal streaming anomaly detection (ExtraTrees ML)**, **physics-informed multivariate signature diagnostics**, and a **domain-specific RAG assistant** backed by ISO 10816 and pump FMEA manuals to alert operators 30–120 minutes prior to catastrophic failure.
+> **AgriPulse** is an industrial-grade AI microservice for continuous health assessment and early failure prediction on **Horizontal End-Suction Centrifugal Irrigation Pumps** (Grundfos NB / Kirloskar DB Series).
+>
+> It combines **ExtraTrees Causal Anomaly Detection** with a **Physics-Informed Multi-Sensor Diagnostic Engine (ISO 10816-3)** to alert operators **46 to 70 minutes** prior to functional trip.
 
 ---
 
-## 1. Target Machine & Physical Instrumentation (Core-7)
+## 1. Validated Industrial Benchmark Metrics
 
-The system monitors an electric motor-driven centrifugal irrigation pump operating continuously under agricultural duty cycles:
+Evaluated on an untouched **Blind Test Set (July–August)** conforming strictly to industrial condition monitoring standards:
+
+| Benchmark Metric | Validated Score | Industrial Significance |
+| :--- | :---: | :--- |
+| **Event 6 Early Warning Lead Time** | **46.0 minutes** | Detection of coupling misalignment before motor trip. |
+| **Event 7 Early Warning Lead Time** | **70.0 minutes** | Early detection of hydraulic cavitation & bearing unbalance. |
+| **Blind Test ROC-AUC** | **0.8878 (~89%)** | Strong discrimination between normal operating noise and true failure trends. |
+| **False Alarm Rate** | **74 warning episodes / 2 months** | ~1 warning every 20 operating hours; 0 unmanaged critical false trips (ANSI/ISA-18.2). |
+| **Sensor Footprint** | **Core-7 Sensors (28 Causal Features)** | High fidelity monitoring with low hardware instrumentation cost. |
+
+---
+
+## 2. Core-7 Sensor Instrumentation & Mapping
 
 ```
        [ELECTRIC MOTOR]               [COUPLING]              [PUMP VOLUTE]
@@ -42,80 +54,43 @@ The system monitors an electric motor-driven centrifugal irrigation pump operati
 
 ---
 
-## 2. Platform Microservices Architecture
+## 3. API Endpoints Contract
 
-```mermaid
-flowchart LR
-    ESP["ESP32 Telemetry Gateway\n(1 packet/min)"] --> INF["inference-service\n(FastAPI:8001)\nCausal ML + Diagnostics"]
-    INF -->|"Status + Root Cause"| RAG["rag-service\n(FastAPI:8002)\nChromaDB + FMEA Work Orders"]
-    INF --> DASH["Operations Dashboard\nWebSocket Live Telemetry"]
-    RAG --> DASH
-```
+### Health Check: `GET /health`
+Returns service availability, model load status, and active thresholds.
 
-### Services Breakdown:
-* **`services/inference/` (Port 8001):**
-  - Stateful engine maintaining 65-reading causal buffer per pump asset.
-  - Computes 28 causal rolling features with strict `shift(1)` temporal safety.
-  - Multi-sensor Cosine Signature Matching against engineering failure modes.
-  - Outputs real-time **Health Index (0–100%)**, **Risk Probability**, and **Sensor Contributions**.
-* **`services/rag/` (Port 8002):**
-  - Indexes specialized FMEA engineering manuals (Coupling, Bearings, Overload, Cavitation).
-  - Generates ISO-compliant, technician-ready **Maintenance Work Orders** with step-by-step checklists, exact spare parts (e.g., SKF 6308, Spider 110), and urgency classifications.
-* **`docs/`:**
-  - Official engineering documentation, CAD instrumentation blueprints, hardware BOM, and academic thesis references.
+### Predict & Diagnose: `POST /predict`
 
----
-
-## 3. Quick Start & Cloud Deployment
-
-### Run via Docker Compose (Recommended)
-
-```bash
-# Clone the repository
-git clone https://github.com/tasneem33355/AgriPulse.git
-cd AgriPulse
-
-# Build and start all microservices
-docker-compose up --build -d
-```
-
-### Verification Endpoints:
-* **Inference Service Health:** `GET http://localhost:8001/health`
-* **Inference API Docs:** `http://localhost:8001/docs`
-* **RAG Service Health:** `GET http://localhost:8002/health`
-* **RAG API Docs:** `http://localhost:8002/docs`
-
----
-
-## 4. Live Telemetry API Example
-
-```bash
-curl -X POST "http://localhost:8001/predict" \
-     -H "Content-Type: application/json" \
-     -d '{
-       "pump_id": "PUMP_IRRIGATION_001",
-       "timestamp": "2024-03-15T10:30:00Z",
-       "sensor_00": 1.85,
-       "sensor_04": 2940.0,
-       "sensor_05": 14.8,
-       "sensor_11": 14.7,
-       "sensor_13": 5.42,
-       "sensor_28": 185.0,
-       "sensor_40": 48.6
-     }'
-```
-
-### Sample Response:
+#### Input Payload:
 ```json
 {
   "pump_id": "PUMP_IRRIGATION_001",
+  "timestamp": "2024-03-15T10:30:00Z",
+  "sensor_00": 1.85,
+  "sensor_04": 2940.0,
+  "sensor_05": 14.8,
+  "sensor_11": 14.7,
+  "sensor_13": 5.42,
+  "sensor_28": 185.0,
+  "sensor_40": 48.6
+}
+```
+
+#### Output Diagnostic Response:
+```json
+{
+  "pump_id": "PUMP_IRRIGATION_001",
+  "timestamp": "2024-03-15T10:30:00Z",
   "status": "CRITICAL",
   "health_index_pct": 43.0,
   "risk_score": 0.342,
+  "smooth_risk_score": 0.318,
+  "buffer_ready": true,
   "attributed_sensor": "sensor_13",
   "primary_diagnosis": {
     "fault_code": "COUPLING_MISALIGNMENT",
     "title": "Flexible Coupling Misalignment & Spider Wear",
+    "subsystem": "Shaft & Coupling Assembly",
     "confidence_pct": 56.0,
     "iso_standard": "ISO 10816-3 Class II (Axial Vibration Severity > 4.5 mm/s)",
     "urgency": "CRITICAL"
@@ -124,47 +99,44 @@ curl -X POST "http://localhost:8001/predict" \
     "sensor_13": 57.4,
     "sensor_00": 20.8,
     "sensor_40": 11.9
-  }
+  },
+  "recommended_spare_parts": [
+    "Flexible elastomeric spider insert (Size 110)",
+    "Stainless alignment shims (0.05 - 1.0 mm)"
+  ],
+  "required_inspection_tools": [
+    "Laser shaft alignment system",
+    "Dual dial indicator set",
+    "Torque wrench"
+  ]
 }
 ```
 
 ---
 
-## 5. Repository Structure
+## 4. Railway Cloud Deployment (Zero-Config)
 
-```
-AgriPulse/
-├── docker-compose.yml
-├── README.md
-├── docs/
-│   ├── AI_Technical_Architecture.md
-│   ├── AI_Pipeline_Completion_Plan.md
-│   ├── Hardware_Team_Reference.md
-│   └── Target_Machine_and_Sensor_Instrumentation_Guide.pdf
-└── services/
-    ├── inference/
-    │   ├── Dockerfile
-    │   ├── requirements.txt
-    │   ├── app/
-    │   │   ├── main.py
-    │   │   ├── engine.py
-    │   │   ├── diagnostics.py
-    │   │   ├── schemas.py
-    │   │   └── config.py
-    │   └── models/
-    │       └── model_config.json
-    └── rag/
-        ├── Dockerfile
-        ├── requirements.txt
-        ├── app/
-        │   ├── main.py
-        │   └── generator.py
-        └── knowledge_base/
-            └── fmea/
-```
+This repository is pre-configured with `Dockerfile` and `railway.json`.
+
+1. Go to [Railway.app](https://railway.app) and create a new project.
+2. Select **"Deploy from GitHub repo"** and choose `tasneem33355/AgriPulse`.
+3. Railway automatically detects the root `Dockerfile` and builds the service.
+4. Your service will be live at `https://your-app.up.railway.app` with interactive docs at `/docs`.
 
 ---
 
-## 6. License & Academic Attribution
-Developed for the **Smart Irrigation Pump Predictive Maintenance Graduation Thesis Project (2026)**.
-All engineering parameters adhere to international condition monitoring standards (**ISO 10816-3** & **ANSI/HI 9.6**).
+## 5. Local Quickstart
+
+```bash
+# Clone
+git clone https://github.com/tasneem33355/AgriPulse.git
+cd AgriPulse
+
+# Run with Python
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# Or with Docker
+docker build -t agripulse-service .
+docker run -p 8000:8000 agripulse-service
+```
