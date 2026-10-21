@@ -104,10 +104,11 @@ Separate service consuming structured diagnostic payloads:
 | :---: | :--- | :--- | :---: |
 | **Phase 1** | **Diagnostic & Mapping Engine** | Directional pattern matching, stagnation guard, FMEA attribution | ✅ **Completed** |
 | **Phase 2** | **Engine & Schema Upgrades** | Prototype mode, ISA-18.2 debounce, test suite (4/4 passed) | ✅ **Completed** |
-| **Phase 3** | **Documentation & BOM Alignment** | Honest metrics, technical architecture, completion plan, BOM v3.0 | 🔄 **In Progress** |
-| **Phase 4** | **Replay Simulation Script** | `scripts/replay_event6.py` for live demonstration to committee | ⏳ Next |
-| **Phase 5** | **RAG Knowledge Base & Service** | Separate `AgriPulse-RAG` repo with ChromaDB and work order prompt | ⏳ Upcoming |
-| **Phase 6** | **Hardware Test Rig Integration** | ESP32 telemetry streaming to Railway live endpoint | ⏳ Final Stage |
+| **Phase 3** | **Documentation & BOM Alignment** | Honest metrics, technical architecture, completion plan, BOM v3.0, PDF v3.0 | ✅ **Completed** |
+| **Phase 4** | **Offline Kaggle Experiments** | Event 5 forensic audit (flatline proof), HW ablation (AUC 0.51), persistence ablation | ✅ **Completed** |
+| **Phase 5** | **Live Replay Simulation** | `scripts/replay_event6.py` for live demonstration to committee | ✅ **Completed** |
+| **Phase 6** | **RAG Knowledge Base & Service** | Separate `AgriPulse-RAG` repo with ChromaDB and work order prompt | ⏳ Upcoming |
+| **Phase 7** | **Hardware Test Rig Integration** | ESP32 telemetry streaming to Railway live endpoint | ⏳ Final Stage |
 
 ---
 
