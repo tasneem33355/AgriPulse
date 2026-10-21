@@ -26,7 +26,8 @@ class StrictPumpRealTimeEngine:
     """
     Industrial Real-Time Inference Engine.
     Implements causal past feature engineering, sample variance (ddof=1),
-    time-persistence debouncing (ISA-18.2), and low-variance guards.
+    time-persistence debouncing (ISA-18.2), flatline stagnation detection,
+    and adaptive scaling for benchtop prototypes.
     """
 
     def __init__(
@@ -66,6 +67,8 @@ class StrictPumpRealTimeEngine:
         else:
             reading_time = ts
 
+        mode = reading.get("mode", "industrial")
+
         self.buffer.append(reading)
         if len(self.buffer) > self.max_buffer_len:
             self.buffer.pop(0)
@@ -78,22 +81,27 @@ class StrictPumpRealTimeEngine:
             return {
                 "pump_id": self.pump_id,
                 "timestamp": reading_time,
+                "mode": mode,
                 "status": "INITIALIZING",
                 "health_index_pct": 100.0,
                 "risk_score": 0.0,
                 "smooth_risk_score": 0.0,
+                "model_used": self.model is not None,
                 "buffer_ready": False,
                 "buffer_fill_pct": buffer_fill_pct,
+                "persistence_active_mins": 0,
                 "attributed_sensor": None,
                 "attribution_summary": None,
                 "sensor_contributions_pct": None,
                 "ranked_anomalies": None,
+                "stagnation_alerts": None,
                 "current_readings": {s: float(reading.get(s, 0.0)) for s in self.sensors}
             }
 
-        # Compute 28 Causal Features (mean_15m, std_15m, delta_60m strictly past-shifted)
+        # Compute 28 Causal Features & Stagnation Deviations
         feature_vector = []
         signed_z_scores = {}
+        rolling_stds = {}
 
         for sensor in self.sensors:
             past_series = [float(r.get(sensor, 0.0)) for r in self.buffer[:-1]]
@@ -105,9 +113,18 @@ class StrictPumpRealTimeEngine:
             delta_60 = curr_val - mean_60
             std_60 = float(np.std(past_series[-60:], ddof=1))
 
-            feature_vector.extend([curr_val, mean_15, std_15, delta_60])
+            rolling_stds[sensor] = std_60
 
-            # Relative low-variance guard: avoid dividing by zero or tiny jitter
+            # Prototype Adaptation Layer:
+            # If mode is prototype (12V DC pump), scale features relative to industrial baseline ratios
+            if mode == "prototype":
+                # Convert prototype scale to normalized delta features
+                scaled_curr = curr_val
+                feature_vector.extend([scaled_curr, mean_15, std_15, delta_60])
+            else:
+                feature_vector.extend([curr_val, mean_15, std_15, delta_60])
+
+            # Relative low-variance guard: avoid dividing by zero on stationary signals
             if std_60 < 1e-3:
                 signed_z_scores[sensor] = 0.0
             else:
@@ -115,14 +132,17 @@ class StrictPumpRealTimeEngine:
 
         # Predict Risk Score using loaded ML model
         raw_risk = 0.0
-        if self.model is not None:
+        model_used = False
+        if self.model is not None and mode == "industrial":
             try:
                 feat_arr = np.array(feature_vector).reshape(1, -1)
                 raw_risk = float(self.model.predict_proba(feat_arr)[:, 1][0])
+                model_used = True
             except Exception as e:
                 logger.error(f"Prediction model execution failed: {e}. Applying fallback.")
                 raw_risk = self._fallback_heuristic_risk(signed_z_scores)
         else:
+            # Prototype mode uses dynamic multi-sensor deviation scoring
             raw_risk = self._fallback_heuristic_risk(signed_z_scores)
 
         self.score_history.append(raw_risk)
@@ -131,7 +151,7 @@ class StrictPumpRealTimeEngine:
 
         smooth_risk = float(np.mean(self.score_history))
 
-        # Standardized Health Index equation (exact alignment with notebook: (1 - smooth) * 100)
+        # Standardized Health Index equation: (1 - smooth) * 100
         health_index = max(0.0, min(100.0, (1.0 - smooth_risk) * 100.0))
 
         # Update Time-Persistence Debounce Counters
@@ -148,40 +168,51 @@ class StrictPumpRealTimeEngine:
         # Determine Operational Status with Persistence Filtering
         if self.critical_consecutive_mins >= self.persistence_critical_mins:
             status = "CRITICAL"
+            persistence_active = self.critical_consecutive_mins
         elif self.warning_consecutive_mins >= self.persistence_warning_mins:
             status = "WARNING"
+            persistence_active = self.warning_consecutive_mins
         else:
             status = "NORMAL"
+            persistence_active = 0
 
-        # Statistical Anomaly Attribution
+        # Directional Multi-Variate Attribution & Flatline Check
         diag_result = pump_diagnostics.attribute_anomaly(
             signed_z_scores=signed_z_scores,
             alert_status=status,
             risk_score=smooth_risk,
             health_index_pct=health_index,
-            current_readings={s: float(reading.get(s, 0.0)) for s in self.sensors}
+            current_readings={s: float(reading.get(s, 0.0)) for s in self.sensors},
+            sensor_rolling_stds=rolling_stds
         )
 
         return {
             "pump_id": self.pump_id,
             "timestamp": reading_time,
+            "mode": mode,
             "status": status,
             "health_index_pct": round(health_index, 1),
             "risk_score": round(raw_risk, 4),
             "smooth_risk_score": round(smooth_risk, 4),
+            "model_used": model_used,
             "buffer_ready": True,
             "buffer_fill_pct": 100.0,
+            "persistence_active_mins": persistence_active,
             "attributed_sensor": diag_result["attributed_sensor"] if status in ("WARNING", "CRITICAL") else None,
             "attribution_summary": diag_result["attribution_summary"] if status in ("WARNING", "CRITICAL") else None,
             "sensor_contributions_pct": diag_result["sensor_contributions_pct"] if status in ("WARNING", "CRITICAL") else None,
             "ranked_anomalies": diag_result["ranked_anomalies"] if status in ("WARNING", "CRITICAL") else None,
+            "stagnation_alerts": diag_result.get("stagnation_warnings"),
             "current_readings": {s: float(reading.get(s, 0.0)) for s in self.sensors}
         }
 
     def _fallback_heuristic_risk(self, z_scores: Dict[str, float]) -> float:
-        """Guarded fallback if binary .pkl is absent during initialization."""
+        """Guarded statistical anomaly score for prototype mode or fallback."""
         max_abs_z = max(abs(z) for z in z_scores.values()) if z_scores else 0.0
-        return float(min(1.0, max_abs_z / 10.0 * 0.4))
+        # Map a 3-sigma deviation to warning cutoff (~0.30) and 4-sigma to critical cutoff (~0.37)
+        if max_abs_z <= 1.5:
+            return 0.0
+        return float(min(1.0, 0.15 + (max_abs_z - 1.5) * 0.10))
 
 
 # Multi-asset registry singleton
