@@ -14,19 +14,20 @@ if os.path.exists(CONFIG_PATH):
 else:
     MODEL_CONFIG = {
         "calibrated_thresholds": {
-            "warning_threshold": 0.2713,
-            "critical_threshold": 0.3169
+            "warning_threshold": 0.3017,
+            "critical_threshold": 0.3691
         },
         "sensor_configuration": {
-            "sensors_list": ["sensor_00", "sensor_04", "sensor_05", "sensor_11", "sensor_13", "sensor_28", "sensor_40"],
-            "buffer_warmup_minutes": 61,
-            "smoothing_window_minutes": 15
+            "sensors_list": ["sensor_00", "sensor_04", "sensor_05", "sensor_11", "sensor_13", "sensor_28", "sensor_40"]
         }
     }
 
-WARNING_THRESHOLD = float(os.getenv("WARNING_THRESHOLD", MODEL_CONFIG["calibrated_thresholds"]["warning_threshold"]))
-CRITICAL_THRESHOLD = float(os.getenv("CRITICAL_THRESHOLD", MODEL_CONFIG["calibrated_thresholds"]["critical_threshold"]))
-CORE_SENSORS = MODEL_CONFIG["sensor_configuration"]["sensors_list"]
-WARMUP_MINUTES = int(MODEL_CONFIG["sensor_configuration"]["buffer_warmup_minutes"])
-SMOOTH_WINDOW = int(MODEL_CONFIG["sensor_configuration"]["smoothing_window_minutes"])
+cal_thresh = MODEL_CONFIG.get("calibrated_thresholds", {})
+sensor_cfg = MODEL_CONFIG.get("sensor_configuration", {})
+
+WARNING_THRESHOLD = float(os.getenv("WARNING_THRESHOLD", cal_thresh.get("warning_threshold", 0.3017)))
+CRITICAL_THRESHOLD = float(os.getenv("CRITICAL_THRESHOLD", cal_thresh.get("critical_threshold", 0.3691)))
+CORE_SENSORS = sensor_cfg.get("sensors_list", ["sensor_00", "sensor_04", "sensor_05", "sensor_11", "sensor_13", "sensor_28", "sensor_40"])
+WARMUP_MINUTES = int(sensor_cfg.get("buffer_warmup_minutes", 61))
+SMOOTH_WINDOW = int(sensor_cfg.get("smoothing_window_minutes", 15))
 RAG_SERVICE_URL = os.getenv("RAG_SERVICE_URL", "http://localhost:8002/generate-work-order")

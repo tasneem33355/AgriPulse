@@ -1,9 +1,17 @@
 import os
+import sys
 import pickle
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+
+# Safe unpickling support for Kaggle saved objects
+class StrictPumpRealTimeEngineKaggle:
+    pass
+
+# Map top-level module to allow unpickling objects serialized in __main__
+sys.modules['__main__'].StrictPumpRealTimeEngine = StrictPumpRealTimeEngineKaggle
 
 from app.config import (
     MODEL_PATH, CORE_SENSORS, WARNING_THRESHOLD, CRITICAL_THRESHOLD,
@@ -13,7 +21,7 @@ from app.diagnostics import pump_diagnostics
 
 class StrictPumpRealTimeEngine:
     """
-    Stateful real-time inference engine per pump asset.
+    Production real-time inference engine per pump asset.
     Maintains causal rolling windows and produces physics-informed diagnostics.
     """
 
@@ -88,7 +96,7 @@ class StrictPumpRealTimeEngine:
             try:
                 feat_arr = np.array(feature_vector).reshape(1, -1)
                 raw_risk = float(self.model.predict_proba(feat_arr)[:, 1][0])
-            except Exception:
+            except Exception as e:
                 raw_risk = self._fallback_heuristic_risk(z_scores)
         else:
             raw_risk = self._fallback_heuristic_risk(z_scores)
@@ -154,10 +162,19 @@ class PumpEngineRegistry:
         if os.path.exists(MODEL_PATH):
             try:
                 with open(MODEL_PATH, "rb") as f:
-                    self.loaded_model = pickle.load(f)
-                print(f"[EngineRegistry] Model successfully loaded from {MODEL_PATH}")
+                    raw_obj = pickle.load(f)
+                
+                # Check if serialized object is direct classifier or wrapper
+                if hasattr(raw_obj, "predict_proba"):
+                    self.loaded_model = raw_obj
+                elif hasattr(raw_obj, "model") and hasattr(raw_obj.model, "predict_proba"):
+                    self.loaded_model = raw_obj.model
+                else:
+                    self.loaded_model = raw_obj
+
+                print(f"[EngineRegistry] Model successfully loaded and verified from {MODEL_PATH}")
             except Exception as e:
-                print(f"[EngineRegistry] Warning loading model: {e}")
+                print(f"[EngineRegistry] Error loading model from {MODEL_PATH}: {e}")
         else:
             print(f"[EngineRegistry] No model found at {MODEL_PATH}. Operating in dynamic calibrated mode.")
 
