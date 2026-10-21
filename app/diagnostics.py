@@ -1,224 +1,151 @@
 """
-Physics-Informed Fault Diagnostics & Multi-Sensor Signature Engine
-Target Asset: Horizontal End-Suction Centrifugal Irrigation Pump (ISO 10816-3 Class II)
+Statistical Anomaly Attribution & Engineering Hypothesis Matcher
+Target Asset: Two-Stage Centrifugal Pumping System (Municipal Water Telemetry Archive)
 
-Implements Multivariate Deviation Fingerprinting, Cosine Signature Similarity,
-Confidence Scoring, and Root-Cause Sensor Contribution Breakdown for RAG & Dashboard.
+Implements directional Z-score deviations, low-variance guards (avoiding zero-std division artifacts),
+and heuristic mapping to standard centrifugal pump failure modes.
 """
 
 from typing import Dict, Any, List, Optional
 import numpy as np
 
-# Core 7 Sensors standard ordering
-SENSORS_ORDER = [
-    "sensor_00",  # Motor DE Bearing Radial Vibration
-    "sensor_04",  # Motor Shaft RPM Speed
-    "sensor_05",  # Motor Phase A Current
-    "sensor_11",  # Motor Phase B Current
-    "sensor_13",  # Coupling Axial Vibration
-    "sensor_28",  # Discharge Flow Rate
-    "sensor_40"   # Bearing Housing Surface Temperature
-]
-
-# Standard Engineering Signatures (Physics-Informed Benchmark Vectors)
-# Represent expected relative Z-deviation weights [s00, s04, s05, s11, s13, s28, s40]
-FAULT_SIGNATURE_PROFILES = {
-    "COUPLING_MISALIGNMENT": {
-        "title": "Flexible Coupling Misalignment & Spider Wear",
-        "subsystem": "Shaft & Coupling Assembly",
-        # Characterized by severe axial vibration (s13), high coupled motor vibration (s00), normal speed (s04)
-        "signature_weights": np.array([0.5, 0.0, 0.1, 0.1, 1.0, 0.0, 0.2]),
-        "iso_standard": "ISO 10816-3 Class II (Axial Vibration Severity > 4.5 mm/s)",
-        "fmea_document": "fmea_coupling_misalignment_and_wear.md",
-        "urgency": "HIGH",
-        "recommended_parts": ["Flexible elastomeric spider insert (Size 110)", "Stainless alignment shims (0.05 - 1.0 mm)"],
-        "recommended_tools": ["Laser shaft alignment system", "Dual dial indicator set", "Torque wrench"]
+# Correct Sensor Registry from verified dataset telemetry
+SENSOR_METADATA = {
+    "sensor_00": {
+        "name": "Motor DE Bearing Radial Vibration",
+        "subsystem": "Motor Drive-End Bearing",
+        "high_deviation_fault": "Bearing Raceway Wear, Flaking, or Dynamic Rotor Unbalance",
+        "low_deviation_fault": "Sensor Disconnection or Decoupling",
+        "fmea_ref": "fmea_centrifugal_pump_bearings.md"
     },
-    "BEARING_DEFECT_FATIGUE": {
-        "title": "Drive-End Bearing Race Fatigue & Rolling Element Wear",
-        "subsystem": "Motor DE Bearing Assembly",
-        # High radial vibration (s00), elevated casing temp (s40), low current impact
-        "signature_weights": np.array([1.0, 0.0, 0.1, 0.1, 0.3, 0.0, 0.6]),
-        "iso_standard": "ISO 10816-3 & SKF Bearing Vibration Acceleration Envelope",
-        "fmea_document": "fmea_centrifugal_pump_bearings.md",
-        "urgency": "CRITICAL",
-        "recommended_parts": ["Deep groove ball bearing (SKF 6308-2Z/C3)", "Bearing lock nut & seal ring"],
-        "recommended_tools": ["Bearing induction heater", "Three-jaw mechanical puller", "FFT vibration spectrum analyzer"]
+    "sensor_04": {
+        "name": "Motor Shaft Rotational Speed",
+        "subsystem": "Motor Drive Shaft",
+        "high_deviation_fault": "Overspeed or VFD Control Surge",
+        "low_deviation_fault": "Motor Slip Under Severe Drag or Impeller Jamming",
+        "fmea_ref": "fmea_motor_overload_and_electrical.md"
     },
-    "BEARING_THERMAL_STARVATION": {
-        "title": "Bearing Lubrication Starvation & Overheating",
-        "subsystem": "Bearing Lubrication Chamber",
-        # Primary signature is extreme thermal rise (s40), followed by secondary radial vibration (s00)
-        "signature_weights": np.array([0.4, 0.0, 0.1, 0.1, 0.1, 0.0, 1.0]),
-        "iso_standard": "SKF Thermal Guidelines: > 75°C Warning, > 85°C Critical (Grease breakdown)",
-        "fmea_document": "fmea_centrifugal_pump_bearings.md",
-        "urgency": "CRITICAL",
-        "recommended_parts": ["High-temp polyurea synthetic grease (NLGI Grade 2)", "Grease nipple fitting"],
-        "recommended_tools": ["Infrared pyrometer / thermal camera", "Contact thermocouple probe", "Grease dispensing gun"]
+    "sensor_05": {
+        "name": "Motor Stator Phase A Current",
+        "subsystem": "Electrical Feeder & Stator",
+        "high_deviation_fault": "Motor Mechanical Overload, Volute Binding, or Voltage Depression",
+        "low_deviation_fault": "Dry Running, Loss of Prime, or Electrical Disconnect",
+        "fmea_ref": "fmea_motor_overload_and_electrical.md"
     },
-    "MOTOR_OVERLOAD_CLOGGING": {
-        "title": "Motor Overload & Impeller Mechanical Jamming",
-        "subsystem": "Stator & Pump Volute Chamber",
-        # High balanced phase currents (s05, s11), slight RPM slip drop (s04), flow drop (s28)
-        "signature_weights": np.array([0.2, 0.4, 1.0, 1.0, 0.1, 0.5, 0.2]),
-        "iso_standard": "IEC 60034-1 & NEMA MG 1 Continuous Full Load Allowances",
-        "fmea_document": "fmea_motor_overload_and_electrical.md",
-        "urgency": "HIGH",
-        "recommended_parts": ["Suction inlet strainer basket", "Volute wear ring set", "Impeller retaining nut"],
-        "recommended_tools": ["AC clamp ammeter", "Megohmmeter (500V DC insulation tester)", "Shaft turning bar"]
+    "sensor_11": {
+        "name": "Motor Stator Phase B Current",
+        "subsystem": "Electrical Feeder & Phase Balance",
+        "high_deviation_fault": "Phase Asymmetry or Overcurrent Overload",
+        "low_deviation_fault": "Single-Phasing Condition or Circuit Loss",
+        "fmea_ref": "fmea_motor_overload_and_electrical.md"
     },
-    "CAVITATION_SUCTION_RESTRICTION": {
-        "title": "Hydraulic Cavitation & Suction Line Restriction",
-        "subsystem": "Hydraulic Volute & Discharge Line",
-        # Severe flow drop (s28), motor current fluctuations (s05), random acoustic vibration spikes (s00)
-        "signature_weights": np.array([0.4, 0.2, 0.5, 0.3, 0.2, 1.0, 0.0]),
-        "iso_standard": "ANSI/HI 9.6.1 Centrifugal Pump NPSH Margin Guidelines",
-        "fmea_document": "fmea_hydraulic_cavitation_and_clogging.md",
-        "urgency": "HIGH",
-        "recommended_parts": ["Suction flange gaskets", "Foot valve replacement flapper", "Mechanical seal cartridge"],
-        "recommended_tools": ["Suction compound vacuum gauge", "Ultrasonic flow meter verification kit"]
+    "sensor_13": {
+        "name": "Coupling Axial Vibration",
+        "subsystem": "Flexible Shaft Coupling",
+        "high_deviation_fault": "Coupling Angular/Parallel Misalignment or Spider Element Deterioration",
+        "low_deviation_fault": "Sensor Disconnect or Damping Dampening",
+        "fmea_ref": "fmea_coupling_misalignment_and_wear.md"
     },
-    "PHASE_IMBALANCE_ELECTRICAL": {
-        "title": "Electrical Phase Asymmetry & Winding Unbalance",
-        "subsystem": "Motor Terminal Box & Feeder Cable",
-        # Severe discrepancy between phase A (s05) and phase B (s11)
-        "signature_weights": np.array([0.1, 0.1, 0.9, 0.2, 0.0, 0.0, 0.3]),
-        "iso_standard": "NEMA MG 1-14.35 Phase Current Unbalance Limit (< 3%)",
-        "fmea_document": "fmea_motor_overload_and_electrical.md",
-        "urgency": "CRITICAL",
-        "recommended_parts": ["Thermal overload relay", "Feeder contactor terminals"],
-        "recommended_tools": ["3-phase power analyzer", "Digital True-RMS multimeter"]
+    "sensor_28": {
+        "name": "Stage 2 Impeller Rotational Speed",
+        "subsystem": "Second-Stage Hydraulic Assembly",
+        "high_deviation_fault": "Inter-stage Hydraulic Surging or Cavitation Jitter",
+        "low_deviation_fault": "Stage 2 Impeller Binding or Severe Hydraulic Choke",
+        "fmea_ref": "fmea_hydraulic_cavitation_and_clogging.md"
+    },
+    "sensor_40": {
+        "name": "Thrust Bearing Temperature",
+        "subsystem": "Thrust Bearing & Lubrication Circuit",
+        "high_deviation_fault": "Lubrication Breakdown, Excessive Axial Thrust Loading, or Friction Seizure",
+        "low_deviation_fault": "Thermal Sensor Open Circuit",
+        "fmea_ref": "fmea_centrifugal_pump_bearings.md"
     }
 }
 
-
-class PhysicsInformedDiagnostics:
+class StatisticalAttributionEngine:
     """
-    Combines localized empirical Z-deviations with domain physics signature matching
-    to produce highly reliable, explainable fault diagnostics.
+    Computes guarded directional Z-scores and produces explainable statistical attributions.
+    Avoids artificial confidence probabilities on unlabeled datasets.
     """
 
-    def __init__(self, profiles: Dict[str, Any] = FAULT_SIGNATURE_PROFILES):
-        self.profiles = profiles
-        self.sensors = SENSORS_ORDER
+    def __init__(self, metadata: Dict[str, Any] = SENSOR_METADATA):
+        self.metadata = metadata
 
-    def compute_sensor_contributions(self, z_deviations: Dict[str, float]) -> Dict[str, float]:
-        """Calculates percentage contribution of each sensor to the current anomaly."""
-        raw_magnitudes = {s: max(0.0, abs(z_deviations.get(s, 0.0))) for s in self.sensors}
-        total = sum(raw_magnitudes.values())
-        if total < 1e-6:
-            return {s: round(100.0 / len(self.sensors), 2) for s in self.sensors}
-        return {s: round((val / total) * 100.0, 1) for s, val in raw_magnitudes.items()}
-
-    def diagnose_anomaly(
+    def attribute_anomaly(
         self,
-        z_deviations: Dict[str, float],
+        signed_z_scores: Dict[str, float],
         alert_status: str,
         risk_score: float,
         health_index_pct: float,
         current_readings: Optional[Dict[str, float]] = None
     ) -> Dict[str, Any]:
         """
-        Executes Cosine Signature Matching against engineering profiles.
-        Returns full diagnostic breakdown, confidence distribution, and dashboard payloads.
+        Analyzes directional sensor deviations and ranks anomalous telemetry contributors.
         """
-        # Vectorize actual observed deviations
-        obs_vec = np.array([max(0.0, abs(z_deviations.get(s, 0.0))) for s in self.sensors])
-        norm_obs = np.linalg.norm(obs_vec)
-
-        similarity_scores = {}
-        for fault_key, profile in self.profiles.items():
-            ref_vec = profile["signature_weights"]
-            norm_ref = np.linalg.norm(ref_vec)
-            if norm_obs < 1e-6 or norm_ref < 1e-6:
-                similarity_scores[fault_key] = 0.0
-            else:
-                # Cosine similarity
-                cosine_sim = float(np.dot(obs_vec, ref_vec) / (norm_obs * norm_ref))
-                similarity_scores[fault_key] = max(0.0, cosine_sim)
-
-        # Softmax confidence normalization
-        score_values = np.array(list(similarity_scores.values()))
-        if np.sum(score_values) > 0:
-            exp_scores = np.exp(score_values * 3.0)  # Temperature scaling
-            probabilities = exp_scores / np.sum(exp_scores)
-            confidence_dist = {
-                k: round(float(prob) * 100.0, 1)
-                for k, prob in zip(similarity_scores.keys(), probabilities)
+        if not signed_z_scores:
+            return {
+                "attributed_sensor": "UNKNOWN",
+                "attribution_summary": None,
+                "sensor_contributions_pct": {},
+                "ranked_anomalies": []
             }
+
+        # Calculate magnitude contributions (ignoring sensor jitter below 1.5 sigma)
+        magnitudes = {}
+        for s, z in signed_z_scores.items():
+            abs_z = abs(z)
+            # Threshold guard: deviations under 1.5 sigma are treated as normal background noise
+            magnitudes[s] = max(0.0, abs_z - 1.5) if abs_z > 1.5 else 0.0
+
+        total_mag = sum(magnitudes.values())
+        if total_mag > 1e-4:
+            contributions = {s: round((mag / total_mag) * 100.0, 1) for s, mag in magnitudes.items()}
         else:
-            confidence_dist = {k: 0.0 for k in similarity_scores}
+            # If all deviations are minimal, equal contribution
+            contributions = {s: round(100.0 / len(signed_z_scores), 1) for s in signed_z_scores}
 
-        # Select highest-confidence diagnosis
-        top_fault_key = max(confidence_dist, key=confidence_dist.get)
-        top_profile = self.profiles[top_fault_key]
-        top_confidence = confidence_dist[top_fault_key]
+        # Select primary attributed sensor (highest absolute Z deviation)
+        primary_sensor = max(signed_z_scores, key=lambda s: abs(signed_z_scores.get(s, 0.0)))
+        primary_z = signed_z_scores[primary_sensor]
+        meta = self.metadata.get(primary_sensor, {})
 
-        # Determine Primary Attributed Sensor
-        attributed_sensor = max(z_deviations, key=lambda s: abs(z_deviations.get(s, 0.0)))
-        sensor_contributions = self.compute_sensor_contributions(z_deviations)
+        direction = "ELEVATED" if primary_z >= 0 else "DEPRESSED"
+        hypothesis = meta.get("high_deviation_fault" if primary_z >= 0 else "low_deviation_fault", "Undetermined Anomaly")
 
-        # Ranked list of possible causes for technician inspection
-        ranked_causes = sorted(
-            [
-                {
-                    "fault_code": k,
-                    "fault_title": self.profiles[k]["title"],
-                    "confidence_pct": confidence_dist[k],
-                    "fmea_reference": self.profiles[k]["fmea_document"]
-                }
-                for k in confidence_dist
-            ],
-            key=lambda x: x["confidence_pct"],
-            reverse=True
-        )
-
-        return {
-            "status": alert_status,
-            "risk_score": round(float(risk_score), 4),
-            "health_index_pct": round(float(health_index_pct), 1),
-            "attributed_sensor": attributed_sensor,
-            "primary_diagnosis": {
-                "fault_code": top_fault_key,
-                "title": top_profile["title"],
-                "subsystem": top_profile["subsystem"],
-                "confidence_pct": top_confidence,
-                "iso_standard": top_profile["iso_standard"],
-                "fmea_document": top_profile["fmea_document"],
-                "urgency": "CRITICAL" if alert_status == "CRITICAL" else top_profile["urgency"]
-            },
-            "sensor_contributions_pct": sensor_contributions,
-            "differential_diagnostics": ranked_causes[:3],  # Top 3 differential options
-            "recommended_spare_parts": top_profile["recommended_parts"],
-            "required_inspection_tools": top_profile["recommended_tools"],
-            "current_sensor_snapshot": current_readings or {}
+        summary = {
+            "attributed_sensor": primary_sensor,
+            "sensor_name": meta.get("name", primary_sensor),
+            "subsystem": meta.get("subsystem", "Mechanical Assembly"),
+            "direction": direction,
+            "deviation_z_score": round(float(primary_z), 2),
+            "attributed_failure_hypothesis": hypothesis,
+            "methodology_note": "Statistical heuristic based on 60-min baseline deviation; represents anomalous telemetry indicator, not a definitive root-cause classification.",
+            "urgency": "CRITICAL" if alert_status == "CRITICAL" else "HIGH"
         }
 
+        # Ranked list of all sensors contributing to the anomaly
+        ranked_list = []
+        for s in sorted(signed_z_scores.keys(), key=lambda k: abs(signed_z_scores[k]), reverse=True):
+            z_val = signed_z_scores[s]
+            s_meta = self.metadata.get(s, {})
+            dir_str = "ELEVATED" if z_val >= 0 else "DEPRESSED"
+            hyp_str = s_meta.get("high_deviation_fault" if z_val >= 0 else "low_deviation_fault", "Anomaly")
+            ranked_list.append({
+                "sensor_id": s,
+                "sensor_name": s_meta.get("name", s),
+                "subsystem": s_meta.get("subsystem", "Assembly"),
+                "deviation_direction": dir_str,
+                "z_score": round(float(z_val), 2),
+                "contribution_pct": contributions.get(s, 0.0),
+                "possible_fault_mode": hyp_str,
+                "fmea_reference": s_meta.get("fmea_ref", "fmea_general.md")
+            })
 
-# Global diagnostic engine instance
-pump_diagnostics = PhysicsInformedDiagnostics()
+        return {
+            "attributed_sensor": primary_sensor,
+            "attribution_summary": summary,
+            "sensor_contributions_pct": contributions,
+            "ranked_anomalies": ranked_list
+        }
 
-if __name__ == "__main__":
-    import json
-
-    # Test with typical Event 6 coupling failure pattern
-    sample_z_scores = {
-        "sensor_00": 2.1,  # Motor DE vibration elevated
-        "sensor_04": 0.2,  # Normal RPM
-        "sensor_05": 0.4,  # Normal current
-        "sensor_11": 0.3,
-        "sensor_13": 5.8,  # Huge coupling vibration spike!
-        "sensor_28": 0.1,  # Normal flow
-        "sensor_40": 1.2   # Slight temperature rise
-    }
-
-    result = pump_diagnostics.diagnose_anomaly(
-        z_deviations=sample_z_scores,
-        alert_status="CRITICAL",
-        risk_score=0.342,
-        health_index_pct=43.0,
-        current_readings={"sensor_13": 5.42, "sensor_00": 2.85, "sensor_05": 16.2}
-    )
-
-    print("=== ADVANCED DIAGNOSTIC RESULT ===")
-    print(json.dumps(result, indent=2))
+pump_diagnostics = StatisticalAttributionEngine()

@@ -3,30 +3,35 @@ from typing import Optional, Dict, List, Any
 from datetime import datetime
 
 class SensorReadingInput(BaseModel):
-    pump_id: str = Field(default="PUMP_001", description="Identifier of monitored pump asset")
-    timestamp: datetime = Field(description="ISO-8601 UTC timestamp of telemetry sample")
-    sensor_00: float = Field(description="Motor DE Bearing Radial Vibration (ADXL345 RMS)")
-    sensor_04: float = Field(default=2940.0, description="Motor Shaft Rotational Speed (RPM)")
-    sensor_05: float = Field(description="Motor Stator Phase A Current Draw (Amperes RMS)")
-    sensor_11: float = Field(description="Motor Stator Phase B Current Draw (Amperes RMS)")
-    sensor_13: float = Field(description="Coupling Axial Vibration (ADXL345 RMS)")
-    sensor_28: float = Field(default=180.0, description="Discharge Hydraulic Flow Rate (L/min)")
-    sensor_40: float = Field(description="Bearing Housing Surface Temperature (Celsius)")
-    sensor_48: Optional[float] = Field(default=None, description="Optional Discharge Pressure (bar)")
+    pump_id: str = Field(default="PUMP_001", description="Unique pump telemetry identifier")
+    timestamp: datetime = Field(description="ISO-8601 UTC timestamp of current reading")
+    sensor_00: float = Field(description="Motor Drive-End Bearing Radial Vibration telemetry")
+    sensor_04: float = Field(description="Motor Shaft Rotational Speed telemetry")
+    sensor_05: float = Field(description="Motor Current Phase A telemetry")
+    sensor_11: float = Field(description="Motor Current Phase B telemetry")
+    sensor_13: float = Field(description="Coupling Axial Vibration telemetry")
+    sensor_28: float = Field(description="Stage 2 Impeller Rotational Speed telemetry (historical values ~1050)")
+    sensor_40: float = Field(description="Thrust Bearing Temperature telemetry")
+    sensor_48: Optional[float] = Field(default=None, description="Inlet / Suction Line Pressure telemetry")
 
-class DifferentialFaultItem(BaseModel):
-    fault_code: str
-    fault_title: str
-    confidence_pct: float
+class RankedAttributionItem(BaseModel):
+    sensor_id: str
+    sensor_name: str
+    subsystem: str
+    deviation_direction: str  # ELEVATED or DEPRESSED
+    z_score: float
+    contribution_pct: float
+    possible_fault_mode: str
     fmea_reference: str
 
-class PrimaryDiagnosis(BaseModel):
-    fault_code: str
-    title: str
+class DiagnosticSummary(BaseModel):
+    attributed_sensor: str
+    sensor_name: str
     subsystem: str
-    confidence_pct: float
-    iso_standard: str
-    fmea_document: str
+    direction: str
+    deviation_z_score: float
+    attributed_failure_hypothesis: str
+    methodology_note: str
     urgency: str
 
 class PredictionOutput(BaseModel):
@@ -39,9 +44,7 @@ class PredictionOutput(BaseModel):
     buffer_ready: bool
     buffer_fill_pct: float
     attributed_sensor: Optional[str] = None
-    primary_diagnosis: Optional[PrimaryDiagnosis] = None
+    attribution_summary: Optional[DiagnosticSummary] = None
     sensor_contributions_pct: Optional[Dict[str, float]] = None
-    differential_diagnostics: Optional[List[DifferentialFaultItem]] = None
-    recommended_spare_parts: Optional[List[str]] = None
-    required_inspection_tools: Optional[List[str]] = None
+    ranked_anomalies: Optional[List[RankedAttributionItem]] = None
     current_readings: Optional[Dict[str, float]] = None

@@ -9,33 +9,39 @@ from app.config import MODEL_CONFIG, WARNING_THRESHOLD, CRITICAL_THRESHOLD
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("=== AgriPulse AI Inference Service Starting ===")
-    print(f"Warning Threshold: {WARNING_THRESHOLD} | Critical Threshold: {CRITICAL_THRESHOLD}")
+    print("=== AgriPulse Predictive Maintenance Service Starting ===")
+    print(f"Operational Warning Threshold: {WARNING_THRESHOLD} | Critical Threshold: {CRITICAL_THRESHOLD}")
     yield
-    print("=== AgriPulse AI Inference Service Shutting Down ===")
+    print("=== AgriPulse Predictive Maintenance Service Shutting Down ===")
 
 app = FastAPI(
-    title="AgriPulse - Centrifugal Pump AI Inference Service",
-    description="Production Causal Anomaly Detection & Physics-Informed Diagnostics for Agricultural Irrigation Pumps.",
-    version="2.0.0",
+    title="AgriPulse - Centrifugal Pump Predictive Maintenance Service",
+    description="Causal Time-Series Anomaly Detection & Statistical Attribution for Industrial Irrigation Pumping Systems.",
+    version="2.1.0",
     lifespan=lifespan
 )
 
+# CORS: Configurable from environment, defaults to open for dashboard integration
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
 @app.get("/health", tags=["Monitoring"])
 def health_check():
+    """Returns dynamic service health, model load state, and active thresholds."""
+    is_loaded = engine_registry.loaded_model is not None
+    service_status = "HEALTHY" if is_loaded else "DEGRADED"
+
     return {
-        "status": "HEALTHY",
+        "status": service_status,
         "service": "agripulse-inference-service",
+        "model_loaded": is_loaded,
         "active_pumps_tracked": len(engine_registry.engines),
-        "model_loaded": engine_registry.loaded_model is not None,
         "calibrated_thresholds": {
             "warning": WARNING_THRESHOLD,
             "critical": CRITICAL_THRESHOLD
@@ -45,8 +51,8 @@ def health_check():
 @app.post("/predict", response_model=PredictionOutput, tags=["Inference"])
 def predict_pump_health(payload: SensorReadingInput):
     """
-    Ingests 1-minute telemetry packet, updates rolling state, computes 28 causal features,
-    and returns real-time risk score, health index, and physics-informed diagnosis.
+    Ingests 1-minute telemetry packet, maintains 65-min causal rolling memory,
+    and returns real-time risk score, health index, and statistical anomaly attribution.
     """
     try:
         engine = engine_registry.get_or_create(payload.pump_id)
@@ -61,4 +67,5 @@ def predict_pump_health(payload: SensorReadingInput):
 
 @app.get("/config", tags=["Configuration"])
 def get_service_config():
+    """Returns active model metadata, sensor list, and validation metrics."""
     return MODEL_CONFIG
