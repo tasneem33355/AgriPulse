@@ -56,3 +56,31 @@ class PredictionOutput(BaseModel):
     ranked_anomalies: Optional[List[RankedAttributionItem]] = None
     stagnation_alerts: Optional[List[Dict[str, Any]]] = None
     current_readings: Optional[Dict[str, float]] = None
+
+class AIChatRequest(BaseModel):
+    user_query: str = Field(description="Technician question or troubleshooting query")
+    pump_id: Optional[str] = Field(default="PUMP_001", description="Monitored pump asset identifier")
+    sensor_diagnostics: Optional[Dict[str, Any]] = Field(default=None, description="Current telemetry and diagnostic payload from /predict")
+
+class AIChatResponse(BaseModel):
+    response: str
+    timestamp: datetime
+    model: str = "llama-3.3-70b-versatile"
+
+class WorkOrderRequest(BaseModel):
+    pump_id: Optional[str] = Field(default="PUMP_001", description="Monitored pump asset identifier")
+    sensor_diagnostics: Dict[str, Any] = Field(description="Active diagnostic payload from /predict requiring work order")
+
+class WorkOrderResponse(BaseModel):
+    work_order_id: str
+    pump_id: str
+    generated_at: str
+    urgency: str
+    failure_diagnosis: str
+    standards_reference: str
+    immediate_mitigation: List[str]
+    loto_safety_steps: List[str]
+    inspection_checklist: List[str]
+    required_parts_and_tools: List[str]
+    estimated_downtime_hours: float
+    llm_generated: bool

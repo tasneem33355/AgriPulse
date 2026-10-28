@@ -108,6 +108,12 @@ Returns dynamic status (`HEALTHY` or `DEGRADED`), active tracking count, and ope
 }
 ```
 
+### AI Maintenance Assistant: `POST /ai/chat`
+Interactive troubleshooting copilot combining live pump telemetry diagnosis with retrieved ISO 10816-3 & ANSI/HI standards.
+
+### Autonomous Work Order Generator: `POST /ai/work-order`
+Generates a formal, production-ready Maintenance Work Order JSON payload with LOTO isolation steps, inspection checklists, torque specifications, and required spare parts.
+
 ---
 
 ## 6. Cloud Deployment (Railway Ready)

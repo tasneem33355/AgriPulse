@@ -1,11 +1,17 @@
 import os
+from datetime import datetime
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from app.schemas import SensorReadingInput, PredictionOutput
+from app.schemas import (
+    SensorReadingInput, PredictionOutput,
+    AIChatRequest, AIChatResponse,
+    WorkOrderRequest, WorkOrderResponse
+)
 from app.engine import engine_registry
 from app.config import MODEL_CONFIG, WARNING_THRESHOLD, CRITICAL_THRESHOLD
+from rag_engine import ask_ai_assistant, generate_work_order, get_groq_api_key
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -37,10 +43,13 @@ def health_check():
     is_loaded = engine_registry.loaded_model is not None
     service_status = "HEALTHY" if is_loaded else "DEGRADED"
 
+    rag_ready = bool(get_groq_api_key()) and os.path.exists("./chroma_db")
+
     return {
         "status": service_status,
-        "service": "agripulse-inference-service",
+        "service": "agripulse-integrated-service",
         "model_loaded": is_loaded,
+        "rag_available": rag_ready,
         "active_pumps_tracked": len(engine_registry.engines),
         "calibrated_thresholds": {
             "warning": WARNING_THRESHOLD,
@@ -63,6 +72,44 @@ def predict_pump_health(payload: SensorReadingInput):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Inference error processing telemetry: {str(e)}"
+        )
+
+@app.post("/ai/chat", response_model=AIChatResponse, tags=["AI Assistant"])
+def chat_with_assistant(payload: AIChatRequest):
+    """
+    Interactive technical assistant for pump engineers and field technicians.
+    Combines live telemetry diagnosis with retrieved ISO/ANSI/FMEA engineering standards.
+    """
+    try:
+        response_text = ask_ai_assistant(
+            user_query=payload.user_query,
+            sensor_diagnostics=payload.sensor_diagnostics
+        )
+        return {
+            "response": response_text,
+            "timestamp": datetime.utcnow(),
+            "model": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AI Assistant query error: {str(e)}"
+        )
+
+@app.post("/ai/work-order", response_model=WorkOrderResponse, tags=["Work Orders"])
+def create_work_order(payload: WorkOrderRequest):
+    """
+    Generates a formal, production-ready Maintenance Work Order JSON payload.
+    Uses RAG context (FMEA, LOTO safety checklist, spare parts, torque specs)
+    with guaranteed deterministic fallback if LLM is offline.
+    """
+    try:
+        wo = generate_work_order(payload.sensor_diagnostics)
+        return wo
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Work Order generation error: {str(e)}"
         )
 
 @app.get("/config", tags=["Configuration"])
