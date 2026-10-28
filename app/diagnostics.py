@@ -102,9 +102,9 @@ class IndustrialDiagnosticEngine:
         stagnated_alerts: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
-        Applies directional multi-sensor correlation rules to identify engineering hypotheses.
+        Applies directional multi-sensor correlation rules across 10 industrial failure modes.
         """
-        # If any sensor flatlined, this hardware fault takes precedence
+        # 1. Hardware Sensor Stagnation & Decoupling (Precedence: Event 5 Forensic Guard)
         if stagnated_alerts:
             stagnant_s = stagnated_alerts[0]
             return {
@@ -112,18 +112,30 @@ class IndustrialDiagnosticEngine:
                 "subsystem": stagnant_s["subsystem"],
                 "hypothesis_title": f"Telemetry Signal Flatline / Sensor Decoupling ({stagnant_s['sensor_id']})",
                 "engineering_rationale": stagnant_s["description"],
-                "fmea_document": "fmea_sensor_hardware_failure.md",
+                "fmea_document": "fmea_sensor_stagnation_and_decoupling.md",
                 "primary_action": f"Inspect electrical wiring and transducer mounting for {stagnant_s['sensor_id']} immediately."
             }
 
         z_13 = signed_z.get("sensor_13", 0.0)
         z_00 = signed_z.get("sensor_00", 0.0)
         z_05 = signed_z.get("sensor_05", 0.0)
+        z_11 = signed_z.get("sensor_11", 0.0)
         z_04 = signed_z.get("sensor_04", 0.0)
         z_28 = signed_z.get("sensor_28", 0.0)
         z_40 = signed_z.get("sensor_40", 0.0)
 
-        # Rule 1: Coupling Misalignment & Excessive Axial Deflection
+        # 2. Structural & Foundation Anchor Looseness (Harmonic multi-sensor amplification)
+        if z_00 > 2.5 and z_13 > 2.5 and z_04 < -1.0:
+            return {
+                "fault_category": "STRUCTURAL_FOUNDATION_LOOSENESS",
+                "subsystem": "Baseplate & Foundation Structure",
+                "hypothesis_title": "Structural Looseness, Soft Foot, or Degraded Foundation Anchor Bolts",
+                "engineering_rationale": f"Concurrent non-linear vibration amplification across motor casing (+{z_00:.1f} sigma) and coupling (+{z_13:.1f} sigma) with rotational slip.",
+                "fmea_document": "fmea_structural_foundation_looseness.md",
+                "primary_action": "Check hold-down anchor bolt torques (120 Nm spec); inspect motor feet for soft-foot deflection (<0.05 mm)."
+            }
+
+        # 3. Flexible Coupling Misalignment & Spider Element Degradation
         if z_13 > 2.0:
             if z_00 > 1.5:
                 rationale = "Severe axial vibration on coupling guard accompanied by correlated radial vibration transmission across the motor drive-end bearing."
@@ -138,19 +150,52 @@ class IndustrialDiagnosticEngine:
                 "primary_action": "Check coupling gap runout with dial indicator and inspect polyurethane spider insert for shredding."
             }
 
-        # Rule 2: Motor Mechanical Overload & Hydraulic Impeller Drag
-        if z_05 > 2.0 and z_28 < -1.5:
+        # 4. Dry Running & Loss of Suction Prime (Drastic motor unload with thermal distress)
+        if z_05 < -2.0 and z_40 > 1.5:
+            return {
+                "fault_category": "HYDRAULIC_DRY_RUNNING",
+                "subsystem": "Volute Suction & Mechanical Seal Assembly",
+                "hypothesis_title": "Pump Dry Running, Loss of Suction Prime, or Air Pocket Ingestion",
+                "engineering_rationale": f"Drastic motor current drop ({z_05:.1f} sigma, no-load state) accompanied by elevated seal/bearing temperature (+{z_40:.1f} sigma).",
+                "fmea_document": "fmea_dry_running_and_loss_of_prime.md",
+                "primary_action": "Stop pump immediately to protect mechanical seal faces; verify intake pit liquid level and re-prime volute."
+            }
+
+        # 5. Hydraulic Cavitation & Suction Restriction
+        if z_28 < -2.0 and z_00 > 1.8:
+            return {
+                "fault_category": "HYDRAULIC_CAVITATION_EROSION",
+                "subsystem": "First & Second Stage Impellers",
+                "hypothesis_title": "Hydraulic Cavitation, Suction Strainer Blockage, or Low NPSH Available",
+                "engineering_rationale": f"Second-stage delivery performance collapse ({z_28:.1f} sigma) coupled with high-frequency acoustic casing vibration (+{z_00:.1f} sigma).",
+                "fmea_document": "fmea_hydraulic_cavitation_and_clogging.md",
+                "primary_action": "Measure suction vacuum (<0.4 bar allowed); inspect intake foot valve flapper for sediment or silt obstruction."
+            }
+
+        # 6. Hydraulic Impeller Clogging & Mechanical Binding
+        if z_05 > 2.0 and (z_28 < -1.5 or z_04 < -1.5):
             return {
                 "fault_category": "ELECTRICAL_HYDRAULIC_BINDING",
-                "subsystem": "Second-Stage Hydraulic Volute",
+                "subsystem": "Pump Volute & Impeller Vanes",
                 "hypothesis_title": "Hydraulic Binding, Silt Clogging, or Excessive Impeller Friction",
-                "engineering_rationale": f"Motor current elevated (+{z_05:.1f} sigma) while stage-2 impeller rotational speed depressed ({z_28:.1f} sigma), indicating mechanical drag inside volute.",
-                "fmea_document": "fmea_motor_overload_and_electrical.md",
+                "engineering_rationale": f"Motor current elevated (+{z_05:.1f} sigma) while impeller speed depressed ({z_28:.1f} sigma), indicating mechanical drag inside volute.",
+                "fmea_document": "fmea_hydraulic_cavitation_and_clogging.md",
                 "primary_action": "Check pump suction strainer for weed/silt blockage; turn shaft by hand to check for binding."
             }
 
-        # Rule 3: Bearing Lubrication Breakdown & Thermal Friction
-        if z_40 > 2.0 and abs(z_00) < 2.0:
+        # 7. Electrical Phase Imbalance & Stator Asymmetry
+        if abs(z_05 - z_11) > 2.0 and max(z_05, z_11) > 1.8:
+            return {
+                "fault_category": "ELECTRICAL_PHASE_IMBALANCE",
+                "subsystem": "Motor Stator & Electrical Feed Circuit",
+                "hypothesis_title": "Three-Phase Electrical Supply Imbalance or Single-Phasing Risk",
+                "engineering_rationale": f"Divergence between Phase A ({z_05:.1f} sigma) and Phase B ({z_11:.1f} sigma) indicates utility voltage unbalance or high-resistance lug.",
+                "fmea_document": "fmea_motor_overload_and_electrical.md",
+                "primary_action": "Measure line-to-line voltages and phase currents with True-RMS clamp meter; check terminal connections."
+            }
+
+        # 8. Bearing Lubrication Starvation & Thermal Friction
+        if z_40 > 2.0 and abs(z_00) < 1.8:
             return {
                 "fault_category": "BEARING_LUBRICATION_STARVATION",
                 "subsystem": "Thrust Bearing Housing",
@@ -160,15 +205,26 @@ class IndustrialDiagnosticEngine:
                 "primary_action": "Verify bearing grease cavity level; check for seal leakage spraying into bearing housing."
             }
 
-        # Rule 4: Bearing Structural Fatigue (Raceway Spalling)
-        if z_00 > 2.0:
+        # 9. Dynamic Rotor Unbalance (Radial vibration surge without axial surge)
+        if z_00 > 2.0 and abs(z_13) < 1.5:
+            return {
+                "fault_category": "MECHANICAL_ROTOR_UNBALANCE",
+                "subsystem": "Motor & Pump Rotating Assembly",
+                "hypothesis_title": "Dynamic Rotor Unbalance or Non-Uniform Impeller Erosion",
+                "engineering_rationale": f"Isolated radial casing vibration surge (+{z_00:.1f} sigma) with stable coupling axial vibration, characteristic of 1X unbalance.",
+                "fmea_document": "fmea_dynamic_rotor_unbalance.md",
+                "primary_action": "Clean sediment/scale deposits from impeller vanes; perform dynamic field balancing (ISO 1940 Grade G2.5)."
+            }
+
+        # 10. Bearing Raceway Fatigue & Structural Spalling
+        if z_00 > 2.0 and z_40 > 1.5:
             return {
                 "fault_category": "BEARING_MECHANICAL_FATIGUE",
-                "subsystem": "Motor Drive-End Bearing",
-                "hypothesis_title": "Bearing Raceway Flaking, Ball Fatigue, or Dynamic Rotor Unbalance",
-                "engineering_rationale": f"High-frequency radial vibration elevated (+{z_00:.1f} sigma) on drive-end bearing casing.",
+                "subsystem": "Motor Drive-End Bearing Assembly",
+                "hypothesis_title": "Bearing Raceway Flaking, Ball Spalling, or Mechanical Wear",
+                "engineering_rationale": f"Co-elevated radial vibration (+{z_00:.1f} sigma) and bearing housing temperature (+{z_40:.1f} sigma) indicating progressive bearing failure.",
                 "fmea_document": "fmea_centrifugal_pump_bearings.md",
-                "primary_action": "Measure vibration envelope acceleration (RMS mm/s) and inspect bearing clearances."
+                "primary_action": "Measure vibration envelope acceleration (RMS mm/s); schedule bearing replacement (SKF 6308 or equivalent)."
             }
 
         # Fallback General Statistical Anomaly
