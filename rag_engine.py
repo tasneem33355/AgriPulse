@@ -86,9 +86,57 @@ def get_gemini_api_key() -> Optional[str]:
         pass
     return None
 
+_cached_gemini_models: List[str] = []
+
+def get_available_gemini_models(api_key: str) -> List[str]:
+    """
+    Dynamically queries Google's ModelService.ListModels endpoint to discover
+    the exact models available for this API key that support generateContent.
+    """
+    global _cached_gemini_models
+    if _cached_gemini_models:
+        return _cached_gemini_models
+
+    discovered = []
+    try:
+        import requests
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            for m in data.get("models", []):
+                methods = m.get("supportedGenerationMethods", [])
+                if "generateContent" in methods:
+                    name = m.get("name", "")
+                    if name.startswith("models/"):
+                        name = name[7:]
+                    if name:
+                        discovered.append(name)
+    except Exception as e:
+        logger.warning(f"Could not fetch model list from Google: {e}")
+
+    if discovered:
+        # Sort so that flash models come first (faster, lighter), then pro
+        discovered.sort(key=lambda x: (0 if "flash" in x else (1 if "pro" in x else 2)))
+        _cached_gemini_models = discovered
+        return _cached_gemini_models
+
+    # Robust fallback list if ListModels is unavailable
+    return [
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-flash",
+        "gemini-2.0-flash",
+        "gemini-2.5-flash",
+        "gemini-1.5-flash-001",
+        "gemini-1.5-flash-002",
+        "gemini-1.5-pro-latest",
+        "gemini-pro"
+    ]
+
+
 def call_gemini_generate(prompt: str, system_prompt: str = "") -> Tuple[Optional[str], Optional[str]]:
     """
-    Direct zero-dependency invocation of Google Gemini (gemini-1.5-flash).
+    Direct zero-dependency invocation of Google Gemini with dynamic model discovery.
     Uses standard requests without requiring heavy libraries.
     Returns (response_text, error_message).
     """
@@ -96,8 +144,7 @@ def call_gemini_generate(prompt: str, system_prompt: str = "") -> Tuple[Optional
     if not api_key:
         return None, "GEMINI_API_KEY is not configured in Streamlit Secrets or environment."
 
-    # Try standard model endpoints
-    models_to_try = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
+    models_to_try = get_available_gemini_models(api_key)
     last_error = ""
 
     combined_text = prompt
