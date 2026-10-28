@@ -17,6 +17,15 @@ import streamlit as st
 # Ensure project root in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# Sync Streamlit secrets to environment variables if running in Streamlit Cloud
+try:
+    if hasattr(st, "secrets"):
+        for k, v in st.secrets.items():
+            if isinstance(v, str) and k not in os.environ:
+                os.environ[k] = v
+except Exception:
+    pass
+
 # Page Configuration
 st.set_page_config(
     page_title="AgriPulse — Smart Pump Predictive Maintenance",
@@ -160,6 +169,14 @@ if backend_live:
     st.sidebar.success(f"🟢 API Connected: {API_BASE_URL}")
 else:
     st.sidebar.info("🟡 In-Process Engine Mode (FastAPI offline)")
+
+from rag_engine import get_gemini_api_key, get_groq_api_key
+if get_gemini_api_key():
+    st.sidebar.success("🤖 AI Copilot: Google Gemini (Active)")
+elif get_groq_api_key():
+    st.sidebar.success("🤖 AI Copilot: Groq LLaMA-3 (Active)")
+else:
+    st.sidebar.warning("⚠️ AI Copilot: Offline Mode\n(Configure GEMINI_API_KEY or GROQ_API_KEY)")
 
 operating_mode = st.sidebar.selectbox(
     "Asset Operating Mode",
