@@ -179,13 +179,7 @@ if gem_key:
 elif groq_key:
     st.sidebar.success("🤖 AI Copilot: Groq LLaMA-3 (Active)")
 else:
-    st.sidebar.warning("⚠️ AI Copilot: Offline Mode")
-    with st.sidebar.expander("🔑 Quick API Key Activation", expanded=True):
-        st.caption("Paste Gemini API Key directly below to activate instantly:")
-        pasted_key = st.text_input("Gemini API Key:", type="password", key="pasted_gemini_key", placeholder="AIzaSy...")
-        if pasted_key:
-            os.environ["GEMINI_API_KEY"] = pasted_key.strip().strip('"').strip("'")
-            st.rerun()
+    st.sidebar.warning("⚠️ AI Copilot: Offline Mode\n(Configure GEMINI_API_KEY in Secrets)")
 
 operating_mode = st.sidebar.selectbox(
     "Asset Operating Mode",
@@ -276,16 +270,24 @@ if col_b1.button("▶️ Ingest 1-Min", use_container_width=True):
 if col_b2.button("⏩ Fast 61m Warmup", use_container_width=True):
     with st.spinner("Populating 61-minute causal warm-up buffer..."):
         from app.engine import engine_registry
+        import random
         eng = engine_registry.get_or_create("PUMP_DEMO_01")
         base = datetime.utcnow()
         for i in range(61):
             st.session_state.current_minute += 1
+            # Add realistic subtle physical sensor noise (+-0.5%) to maintain natural non-zero variance
+            j = (random.random() - 0.5) * 0.02
             eng.process_reading({
                 "pump_id": "PUMP_DEMO_01",
                 "timestamp": (base + timedelta(minutes=st.session_state.current_minute)).isoformat(),
                 "mode": operating_mode,
-                "sensor_00": 1.50, "sensor_04": 634.0, "sensor_05": 76.0,
-                "sensor_11": 48.0, "sensor_13": 2.00, "sensor_28": 1055.0, "sensor_40": 55.0
+                "sensor_00": round(1.50 * (1 + j), 4),
+                "sensor_04": round(634.0 * (1 + j * 0.2), 2),
+                "sensor_05": round(76.0 * (1 + j), 3),
+                "sensor_11": round(48.0 * (1 + j), 3),
+                "sensor_13": round(2.00 * (1 + j), 4),
+                "sensor_28": round(1055.0 * (1 + j * 0.3), 2),
+                "sensor_40": round(55.0 * (1 + j * 0.1), 2)
             })
         send_current_telemetry()
         st.success("Warm-up complete! Buffer is 100% full.")

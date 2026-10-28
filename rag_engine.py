@@ -10,7 +10,7 @@ import os
 import json
 import time
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
 
 logger = logging.getLogger("agripulse.rag")
@@ -86,45 +86,64 @@ def get_gemini_api_key() -> Optional[str]:
         pass
     return None
 
-def call_gemini_generate(prompt: str, system_prompt: str = "") -> Optional[str]:
+def call_gemini_generate(prompt: str, system_prompt: str = "") -> Tuple[Optional[str], Optional[str]]:
     """
     Direct zero-dependency invocation of Google Gemini (gemini-1.5-flash).
     Uses standard requests without requiring heavy libraries.
+    Returns (response_text, error_message).
     """
     api_key = get_gemini_api_key()
     if not api_key:
-        return None
-    try:
-        import requests
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-        headers = {"Content-Type": "application/json"}
-        
-        contents = []
-        if system_prompt:
-            contents.append({"role": "user", "parts": [{"text": f"[SYSTEM INSTRUCTIONS]\n{system_prompt}"}]})
-            contents.append({"role": "model", "parts": [{"text": "Understood. I will act strictly as AgriPulse Reliability & Predictive Maintenance Engineer."}]})
-        contents.append({"role": "user", "parts": [{"text": prompt}]})
+        return None, "GEMINI_API_KEY is not configured in Streamlit Secrets or environment."
 
-        payload = {
-            "contents": contents,
-            "generationConfig": {
-                "temperature": 0.2,
-                "maxOutputTokens": 2048
-            }
+    # Try standard model endpoints
+    models_to_try = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
+    last_error = ""
+
+    combined_text = prompt
+    if system_prompt:
+        combined_text = f"System Instructions:\n{system_prompt}\n\nTask / Question:\n{prompt}"
+
+    payload = {
+        "contents": [{
+            "parts": [{"text": combined_text}]
+        }],
+        "generationConfig": {
+            "temperature": 0.2,
+            "maxOutputTokens": 2048
         }
-        res = requests.post(url, json=payload, headers=headers, timeout=30)
-        if res.status_code == 200:
-            data = res.json()
-            candidates = data.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                if parts:
-                    return parts[0].get("text", "").strip()
-        else:
-            logger.warning(f"Gemini API returned status {res.status_code}: {res.text}")
-    except Exception as e:
-        logger.error(f"Gemini generation error: {e}")
-    return None
+    }
+
+    import requests
+    headers = {"Content-Type": "application/json"}
+
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        try:
+            res = requests.post(url, json=payload, headers=headers, timeout=25)
+            if res.status_code == 200:
+                data = res.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts:
+                        return parts[0].get("text", "").strip(), None
+                return "Gemini did not return any text candidates.", None
+            else:
+                err_text = res.text
+                try:
+                    err_json = res.json()
+                    err_text = err_json.get("error", {}).get("message", res.text)
+                except Exception:
+                    pass
+                last_error = f"Model {model_name} HTTP {res.status_code}: {err_text}"
+                # If key itself is invalid or permission denied, no need to retry other models
+                if res.status_code in (400, 403) and "API_KEY_INVALID" in res.text:
+                    break
+        except Exception as e:
+            last_error = str(e)
+
+    return None, last_error
 
 def get_retriever():
     """Lazy initialize vector database and embeddings on first query."""
@@ -288,9 +307,11 @@ def ask_ai_assistant(
 
     # Try Google Gemini first (if key configured)
     if get_gemini_api_key():
-        gemini_resp = call_gemini_generate(prompt=user_query, system_prompt=full_system)
+        gemini_resp, gemini_err = call_gemini_generate(prompt=user_query, system_prompt=full_system)
         if gemini_resp:
             return gemini_resp
+        if gemini_err:
+            return f"⚠️ **Google Gemini API Error:**\n{gemini_err}\n\nPlease verify that your `GEMINI_API_KEY` in Streamlit Cloud Secrets is active and valid at https://aistudio.google.com"
 
     # Try Groq LLM
     llm = get_llm()
@@ -380,7 +401,7 @@ Required JSON keys:
     # 1. Try Google Gemini
     if get_gemini_api_key():
         try:
-            gem_res = call_gemini_generate(prompt=prompt_text, system_prompt="You generate strict industrial JSON maintenance work orders. Output ONLY pure valid JSON.")
+            gem_res, gem_err = call_gemini_generate(prompt=prompt_text, system_prompt="You generate strict industrial JSON maintenance work orders. Output ONLY pure valid JSON.")
             if gem_res:
                 return _clean_and_parse(gem_res)
         except Exception as e:
