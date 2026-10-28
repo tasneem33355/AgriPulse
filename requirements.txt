@@ -8,12 +8,7 @@ python-multipart==0.0.9
 requests==2.32.3
 streamlit>=1.35.0
 python-dotenv>=1.0.1
-pypdf>=4.2.0
 langchain>=0.2.14
-langchain-community>=0.2.12
 langchain-core>=0.2.33
-langchain-chroma>=0.1.2
-langchain-huggingface>=0.0.3
 langchain-groq>=0.1.9
-chromadb>=0.5.4
-sentence-transformers>=3.0.1
+pypdf>=4.2.0
