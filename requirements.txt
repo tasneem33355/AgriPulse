@@ -6,6 +6,7 @@ pandas==2.2.2
 scikit-learn==1.6.1
 python-multipart==0.0.9
 requests==2.32.3
+streamlit>=1.35.0
 python-dotenv>=1.0.1
 pypdf>=4.2.0
 langchain>=0.2.14

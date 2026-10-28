@@ -122,3 +122,16 @@ Pre-configured with zero-config `Dockerfile` and `railway.json`:
 1. Link repository to [Railway.app](https://railway.app).
 2. Service auto-builds on Python 3.11 with pinned `scikit-learn==1.6.1`.
 3. Interactive Swagger documentation is available live at `/docs`.
+
+---
+
+## 7. Interactive Streamlit Testing Dashboard
+
+Launch the live interactive SCADA & fault-injection test bench:
+```bash
+streamlit run dashboard.py
+```
+* **Real-time Telemetry & Debounce Engine:** Ingest 1-minute frames, observe the 61-minute causal warm-up buffer, and track the 5-min Warning / 8-min Critical persistence countdown.
+* **Fault Injection Simulator:** Test 6 presets (Normal baseline, Coupling Misalignment, Impeller Clogging, Cavitation, Dry Running, and Event 5 Flatline).
+* **Autonomous Work Order Generation:** Generates and exports formal LOTO engineering work orders with spare parts lists and torque limits.
+* **AI Maintenance Copilot:** Interactive RAG chat powered by Groq LLM and ISO 10816-3 manuals.
