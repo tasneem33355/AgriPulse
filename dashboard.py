@@ -171,12 +171,21 @@ else:
     st.sidebar.info("🟡 In-Process Engine Mode (FastAPI offline)")
 
 from rag_engine import get_gemini_api_key, get_groq_api_key
-if get_gemini_api_key():
+gem_key = get_gemini_api_key()
+groq_key = get_groq_api_key()
+
+if gem_key:
     st.sidebar.success("🤖 AI Copilot: Google Gemini (Active)")
-elif get_groq_api_key():
+elif groq_key:
     st.sidebar.success("🤖 AI Copilot: Groq LLaMA-3 (Active)")
 else:
-    st.sidebar.warning("⚠️ AI Copilot: Offline Mode\n(Configure GEMINI_API_KEY or GROQ_API_KEY)")
+    st.sidebar.warning("⚠️ AI Copilot: Offline Mode")
+    with st.sidebar.expander("🔑 Quick API Key Activation", expanded=True):
+        st.caption("Paste Gemini API Key directly below to activate instantly:")
+        pasted_key = st.text_input("Gemini API Key:", type="password", key="pasted_gemini_key", placeholder="AIzaSy...")
+        if pasted_key:
+            os.environ["GEMINI_API_KEY"] = pasted_key.strip().strip('"').strip("'")
+            st.rerun()
 
 operating_mode = st.sidebar.selectbox(
     "Asset Operating Mode",

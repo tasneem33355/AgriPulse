@@ -25,10 +25,66 @@ DB_DIR = os.getenv("CHROMA_DB_DIR", "./chroma_db")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 def get_groq_api_key() -> Optional[str]:
-    return os.getenv("GROQ_API_KEY")
+    # 1. Environment variables
+    for env_k in ["GROQ_API_KEY", "groq_api_key", "GROQ_KEY"]:
+        val = os.getenv(env_k)
+        if val and val.strip():
+            return val.strip().strip('"').strip("'")
+    
+    # 2. Direct Streamlit secrets inspection
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets"):
+            for sec_k in ["GROQ_API_KEY", "groq_api_key", "GROQ_KEY"]:
+                if sec_k in st.secrets:
+                    raw = str(st.secrets[sec_k]).strip().strip('"').strip("'")
+                    if raw:
+                        return raw
+            # Check nested sections (e.g. [secrets] or [general])
+            for section in st.secrets:
+                try:
+                    sec_dict = st.secrets[section]
+                    if hasattr(sec_dict, "get"):
+                        for sec_k in ["GROQ_API_KEY", "groq_api_key"]:
+                            val = sec_dict.get(sec_k)
+                            if val:
+                                return str(val).strip().strip('"').strip("'")
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return None
 
 def get_gemini_api_key() -> Optional[str]:
-    return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    # 1. Environment variables
+    for env_k in ["GEMINI_API_KEY", "gemini_api_key", "GOOGLE_API_KEY", "google_api_key", "GEMINI_KEY"]:
+        val = os.getenv(env_k)
+        if val and val.strip():
+            return val.strip().strip('"').strip("'")
+    
+    # 2. Direct Streamlit secrets inspection
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets"):
+            for sec_k in ["GEMINI_API_KEY", "gemini_api_key", "GOOGLE_API_KEY", "google_api_key", "GEMINI_KEY"]:
+                if sec_k in st.secrets:
+                    raw = str(st.secrets[sec_k]).strip().strip('"').strip("'")
+                    if raw:
+                        return raw
+            # Check nested sections
+            for section in st.secrets:
+                try:
+                    sec_dict = st.secrets[section]
+                    if hasattr(sec_dict, "get"):
+                        for sec_k in ["GEMINI_API_KEY", "gemini_api_key", "GOOGLE_API_KEY", "google_api_key"]:
+                            val = sec_dict.get(sec_k)
+                            if val:
+                                return str(val).strip().strip('"').strip("'")
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return None
 
 def call_gemini_generate(prompt: str, system_prompt: str = "") -> Optional[str]:
     """
